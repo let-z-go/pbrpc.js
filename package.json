@@ -1,0 +1,11 @@
+{
+  "name": "pbrpc",
+  "version": "0.0.1",
+  "main": "index.js",
+  "bin": {
+    "pbrpcjs": "bin/pbrpcjs"
+  },
+  "dependencies": {
+    "protobufjs": "^6.8.8"
+  }
+}

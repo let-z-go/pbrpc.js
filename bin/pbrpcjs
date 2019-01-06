@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -o errexit -o nounset -o pipefail # -o xtrace
+
+usage() {
+    tee <<EOF
+Usage: $0 [options] file.proto...
+Options:
+    -p, --path <directory>    Adds a directory to the include path.
+    -o, --out <file>          Saves to a file instead of writing to stdout.
+EOF
+}
+
+xrealpath() {
+    command -v realpath > /dev/null && realpath "$1" || python -c "print(__import__('os').path.realpath('$1'))"
+}
+
+temp=$(getopt -o 'hp:o:' --long help,path:,out: -n "$0" -- "$@")
+eval set -- "${temp}"
+
+pbjs_args=""
+output_file="/dev/stdout"
+
+while true; do
+    case "$1" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    -p|--path)
+        pbjs_args+=" $1 ${2@Q}"
+        shift 2
+        ;;
+    -o|--out)
+        output_file=$1
+        shift 2
+        ;;
+    --)
+        shift
+        break
+        ;;
+    esac
+done
+
+if [ "$#" -eq 0 ]; then
+    usage
+    exit 1
+fi
+
+dir=$(xrealpath "$(dirname "$(xrealpath "$0")")/..")
+eval "${dir}/node_modules/protobufjs/bin/pbjs" --target json ${pbjs_args} -- $* | node "${dir}/cmd/pbrpc.js" > ${output_file}
