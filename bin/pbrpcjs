@@ -32,7 +32,7 @@ while true; do
         shift 2
         ;;
     -o|--out)
-        output_file=$1
+        output_file=$2
         shift 2
         ;;
     --)
@@ -47,5 +47,6 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
+protobufjs_dir=$(dirname "$(node --print 'require.resolve("protobufjs")')")
 dir=$(xrealpath "$(dirname "$(xrealpath "$0")")/..")
-eval "${dir}/node_modules/protobufjs/bin/pbjs" --target json ${pbjs_args} -- $* | node "${dir}/cmd/pbrpc.js" > ${output_file}
+eval "${protobufjs_dir}/bin/pbjs" --target json ${pbjs_args} -- $* | node "${dir}/cmd/pbrpc.js" > "${output_file}"

@@ -51,7 +51,7 @@ function processService(serviceFullName, serviceName, methods) {
 function generateServiceClient(serviceFullName, serviceName, methods) {
     console.log(heredoc(function() {/*
 
-function %sClient(channel) {
+function %sServiceClient(channel) {
     this.channel = channel;
 }
 */}), serviceName);
@@ -61,7 +61,7 @@ function %sClient(channel) {
 
         console.log(heredoc(function() {/*
 
-%sClient.prototype.%s = function(request, callback, autoRetry) {
+%sServiceClient.prototype.%s = function(request, callback, autoRetry) {
     if (autoRetry == undefined) {
         autoRetry = false;
     }
@@ -100,19 +100,19 @@ function %sClient(channel) {
 
     console.log(heredoc(function() {/*
 
-exports.%sClient = %sClient;
+exports.%sServiceClient = %sServiceClient;
 */}), serviceName, serviceName);
 }
 
 function generateServiceHandler(serviceFullName, serviceName, methods) {
     console.log(heredoc(function() {/*
 
-function %sHandler() {
+function %sServiceHandler() {
 }
 
-%sHandler.prototype.name = "%s";
+%sServiceHandler.prototype.name = "%s";
 
-%sHandler.prototype.methodTable = {
+%sServiceHandler.prototype.methodTable = {
 */}), serviceName, serviceName, serviceName, serviceName);
 
     Object.keys(methods).forEach(function(methodName) {
@@ -160,7 +160,7 @@ function %sHandler() {
     console.log(heredoc(function() {/*
 };
 
-exports.%sHandler = %sHandler;
+exports.%sServiceHandler = %sServiceHandler;
 */}), serviceName, serviceName);
 }
 

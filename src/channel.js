@@ -23,6 +23,14 @@ var errorInternalServer = protocol.ErrorCode.ERROR_INTERNAL_SERVER;
 var errorUserDefined = protocol.ErrorCode.ERROR_USER_DEFINED;
 
 function Channel(serverAddress, handshaker) {
+    if (handshaker == undefined) {
+        handshaker = function(greeter) {
+            greeter(new Uint8Array(0), function(handshake) {
+                return true;
+            });
+        };
+    }
+
     this.serverAddress = serverAddress;
     this.handshaker = handshaker;
     this.serviceHandlers = {};
@@ -103,13 +111,7 @@ Channel.prototype.connect = function(reconnectionDelay) {
             greeterCallback = greeterCallback2;
         }.bind(this);
 
-        if (this.handshaker == undefined) {
-            greeter(new Uint8Array(0), function(handshake) {
-                return true;
-            });
-        } else {
-            this.handshaker(greeter);
-        }
+        this.handshaker(greeter);
     }.bind(this);
 
     transport.onDisconnect = function() {
