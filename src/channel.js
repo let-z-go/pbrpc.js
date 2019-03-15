@@ -63,10 +63,24 @@ Channel.prototype.registerServiceHandler = function(serviceHandler) {
     this.serviceHandlers[serviceHandler.name] = serviceHandler;
 };
 
-Channel.prototype.callMethod = function(serviceName, methodName, requestPayloadData, autoRetryMethodCall, callback) {
+Channel.prototype.close = function() {
+    this.autoReconnect = false;
+    this.transport.close();
+};
+
+Channel.prototype.callMethod = function(serviceName, methodName, extraData, requestPayloadData, autoRetryMethodCall, callback) {
+    var context = {
+        serviceName: serviceName,
+        methodName: methodName,
+        extraData: extraData,
+        traceID: UUID.v4(),
+        spanParentID: 0,
+        spanID: 1,
+    };
+
     if (!this.isConnected && !this.autoReconnect) {
         setTimeout(callback.bind(null, errorChannelClosed, null), 0);
-        return;
+        return context;
     }
 
     if (callback == null) {
@@ -74,18 +88,21 @@ Channel.prototype.callMethod = function(serviceName, methodName, requestPayloadD
     }
 
     this.methodCalls.appendNode({
-        traceID: UUID.v4(),
-        spanParentID: 0,
-        spanID: 1,
-        serviceName: serviceName,
-        methodName: methodName,
+        serviceName: context.serviceName,
+        methodName: context.methodName,
+        extraData: context.extraData,
+        traceID: context.traceID,
+        spanID: context.spanID,
         requestPayloadData: requestPayloadData,
         autoRetry: autoRetryMethodCall,
         callback: callback,
     });
+
+    return context
 };
 
 Channel.prototype.connect = function(reconnectionDelay) {
+    console.info("[pbrpc] connecting to [%s]...", this.serverAddress)
     var transport = new Transport(this.serverAddress);
     this.transport = transport;
     var greeterCallback = null;
@@ -117,10 +134,6 @@ Channel.prototype.connect = function(reconnectionDelay) {
     transport.onDisconnect = function() {
         if (this.autoReconnect) {
             if (this.isConnected) {
-                clearTimeout(this.heartbeatReadTimeout);
-                this.heartbeatReadTimeout = null;
-                clearTimeout(this.heartbeatWriteTimeout);
-                this.heartbeatWriteTimeout = null;
                 this.methodCalls.suspendNodeProcessor();
                 var methodCalls = [];
                 var completedMethodCallCount = 0;
@@ -161,11 +174,16 @@ Channel.prototype.connect = function(reconnectionDelay) {
         }
 
         if (this.isConnected) {
+            clearTimeout(this.heartbeatReadTimeout);
+            this.heartbeatReadTimeout = null;
+            clearTimeout(this.heartbeatWriteTimeout);
+            this.heartbeatWriteTimeout = null;
             this.pendingMethodCalls = {};
             this.pendingResultReturnCount = 0;
             this.resultReturns.suspendNodeProcessor();
             this.resultReturns = this.resultReturns.renew();
-            this.onDisconnect(this.autoReconnect);
+            console.info("[pbrpc] disconnected from [%s].", this.serverAddress)
+            setTimeout(this.onDisconnect.bind(this, this.autoReconnect), 0);
         }
 
         if (this.autoReconnect) {
@@ -183,9 +201,11 @@ Channel.prototype.connect = function(reconnectionDelay) {
                     }
                 }
 
+                var factor = 2/3 + (3/2 - 2/3) * Math.random();
+
                 setTimeout(function() {
                     this.connect(reconnectionDelay);
-                }.bind(this), reconnectionDelay);
+                }.bind(this), factor * reconnectionDelay);
             }
         }
     }.bind(this);
@@ -197,8 +217,7 @@ Channel.prototype.connect = function(reconnectionDelay) {
             var greeting = protocol.Greeting.decode(data[0]);
 
             if (!greeterCallback(greeting.handshake)) {
-                this.autoReconnect = false;
-                this.transport.close();
+                this.close();
                 return;
             }
 
@@ -220,7 +239,8 @@ Channel.prototype.connect = function(reconnectionDelay) {
             this.receiveMessages([]);
             this.sendMessages([], []);
             this.isConnected = true;
-            this.onConnect();
+            console.info("[pbrpc] connected to [%s]!", this.serverAddress)
+            setTimeout(this.onConnect.bind(this), 0);
         }
     }.bind(this);
 };
@@ -242,28 +262,38 @@ Channel.prototype.receiveMessages = function(data) {
         switch (messageType) {
         case protocol.MessageType.MESSAGE_REQUEST:
             var requestHeader = protocol.RequestHeader.decode(messageHeaderData);
+
+            var context = {
+                serviceName: requestHeader.serviceName,
+                methodName: requestHeader.methodName,
+                extraData: requestHeader.extraData,
+                traceID: UUID.fromBytes(requestHeader.traceId),
+                spanParentID: requestHeader.spanId,
+                spanID: requestHeader.spanId + 1,
+            };
+
             var serviceHandler = null;
             var methodHandler = null;
             var errorCode;
 
-            if (requestHeader.serviceName in this.serviceHandlers
-                && (serviceHandler = this.serviceHandlers[requestHeader.serviceName], requestHeader.methodName in serviceHandler.methodTable)
-                && (methodHandler = serviceHandler.methodTable[requestHeader.methodName], requestHeader.methodName in serviceHandler)) {
+            if (context.serviceName in this.serviceHandlers
+                && (serviceHandler = this.serviceHandlers[context.serviceName], context.methodName in serviceHandler.methodTable)
+                && (methodHandler = serviceHandler.methodTable[context.methodName], context.methodName in serviceHandler)) {
                 ++this.pendingResultReturnCount;
 
                 if (this.pendingResultReturnCount <= this.incomingWindowSize) {
                     var resultReturns = this.resultReturns;
 
-                    methodHandler.call(serviceHandler, this, messagePayloadData, function(errorCode, responsePayloadData) {
+                    methodHandler.call(serviceHandler, this, context, messagePayloadData, function(errorCode, responsePayloadData) {
                         resultReturns.appendNode({
-                            nextSpanID: requestHeader.SpanId + 1,
                             sequenceNumber: requestHeader.sequenceNumber,
+                            nextSpanID: context.spanID + 2,
                             errorCode: errorCode,
                             responsePayloadData: responsePayloadData,
                         });
                     }.bind(this));
 
-                    break
+                    break;
                 }
 
                 errorCode = errorTooManyRequests;
@@ -275,15 +305,15 @@ Channel.prototype.receiveMessages = function(data) {
                 }
             }
 
-            var onReturnResultByLocal = this.onCallMethodByRemote(requestHeader.serviceName, requestHeader.methodName, {});
+            var onReturnResultByLocal = this.onCallMethodByRemote(context, {});
 
             if (onReturnResultByLocal != null) {
                 onReturnResultByLocal(errorCode, null);
             }
 
             this.resultReturns.appendNode({
-                nextSpanID: requestHeader.SpanId + 1,
                 sequenceNumber: requestHeader.sequenceNumber,
+                nextSpanID: context.spanID + 2,
                 errorCode: errorCode,
                 responsePayloadData: null,
             });
@@ -308,6 +338,7 @@ Channel.prototype.receiveMessages = function(data) {
             break;
         case protocol.MessageType.MESSAGE_HEARTBEAT:
             protocol.Heartbeat.decode(messageHeaderData);
+            this.onHeartbeatFromRemote()
             break;
         }
     }.bind(this));
@@ -335,12 +366,12 @@ Channel.prototype.sendMessages = function(methodCalls, resultReturns) {
         methodCall.sequenceNumber = this.getSequenceNumber();
 
         var requestHeaderData = protocol.RequestHeader.encode({
-            traceId: methodCall.traceID.bytes,
-            spanParentId: methodCall.spanParentID,
-            spanId: methodCall.spanID,
             sequenceNumber: methodCall.sequenceNumber,
             serviceName: methodCall.serviceName,
             methodName: methodCall.methodName,
+            extraData: methodCall.extraData,
+            traceId: methodCall.traceID.bytes,
+            spanId: methodCall.spanID,
         }).finish();
 
         var buffer = new Uint8Array(3 + requestHeaderData.length + methodCall.requestPayloadData.length);
@@ -354,8 +385,8 @@ Channel.prototype.sendMessages = function(methodCalls, resultReturns) {
 
     resultReturns.forEach(function(resultReturn) {
         var responseHeaderData = protocol.ResponseHeader.encode({
-            nextSpanId: resultReturn.nextSpanID,
             sequenceNumber: resultReturn.sequenceNumber,
+            nextSpanId: resultReturn.nextSpanID,
             errorCode: resultReturn.errorCode,
         }).finish();
 
@@ -397,6 +428,7 @@ Channel.prototype.sendMessages = function(methodCalls, resultReturns) {
         buffer[2] = heartbeatData.length & 0xFF;
         buffer.set(heartbeatData, 3);
         this.transport.write(buffer);
+        this.onHeartbeatFromLocal()
         this.sendMessages([], []);
     }.bind(this), this.getMinHeartbeatInterval());
 };
@@ -413,8 +445,96 @@ Channel.prototype.getSequenceNumber = function() {
 
 Channel.prototype.onConnect = function() {};
 Channel.prototype.onDisconnect = function(autoReconnect) {};
-Channel.prototype.onCallMethodByLocal = function(serviceName, methodName, requestPayload) {};
-Channel.prototype.onCallMethodByRemote = function(serviceName, methodName, request) {};
+
+Channel.prototype.onHeartbeatFromLocal = function() {
+        console.info("[pbrpc][C->S][Heartbeat] .");
+};
+
+Channel.prototype.onCallMethodByLocal = function(context, requestPayload) {
+    var startTime = Date.now();
+
+    return function(errorCode, response) {
+        var endTime = Date.now();
+        var duration = (endTime - startTime) / 1000;
+
+        if (errorCode == 0) {
+            console.info(
+                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, response=%o",
+                context.traceID.toString(),
+                context.spanID,
+                context.serviceName,
+                context.methodName,
+                duration,
+                requestPayload,
+                response,
+            );
+        } else {
+            var log;
+
+            if (errorCode < errorUserDefined) {
+                log = console.error;
+            } else {
+                log = console.info;
+            }
+
+            log(
+                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, errorCode=%d",
+                context.traceID.toString(),
+                context.spanID,
+                context.serviceName,
+                context.methodName,
+                duration,
+                requestPayload,
+                errorCode,
+            );
+        }
+    };
+};
+
+Channel.prototype.onHeartbeatFromRemote = function() {
+        console.info("[pbrpc][S->C][Heartbeat] .");
+};
+
+Channel.prototype.onCallMethodByRemote = function(context, request) {
+    var startTime = Date.now();
+
+    return function(errorCode, responsePayload) {
+        var endTime = Date.now();
+        var duration = (endTime - startTime) / 1000;
+
+        if (errorCode == 0) {
+            console.info(
+                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, responsePayload=%o",
+                context.traceID.toString(),
+                context.spanID,
+                context.serviceName,
+                context.methodName,
+                duration,
+                request,
+                responsePayload,
+            );
+        } else {
+            var log;
+
+            if (errorCode < errorUserDefined) {
+                log = console.error;
+            } else {
+                log = console.info;
+            }
+
+            log(
+                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d",
+                context.traceID.toString(),
+                context.spanID,
+                context.serviceName,
+                context.methodName,
+                duration,
+                request,
+                errorCode,
+            );
+        }
+    };
+};
 
 module.exports = {
     errorChannelBroken: errorChannelBroken,

@@ -518,12 +518,12 @@ $root.RequestHeader = (function() {
      * Properties of a RequestHeader.
      * @exports IRequestHeader
      * @interface IRequestHeader
-     * @property {Uint8Array|null} [traceId] RequestHeader traceId
-     * @property {number|null} [spanParentId] RequestHeader spanParentId
-     * @property {number|null} [spanId] RequestHeader spanId
      * @property {number|null} [sequenceNumber] RequestHeader sequenceNumber
      * @property {string|null} [serviceName] RequestHeader serviceName
      * @property {string|null} [methodName] RequestHeader methodName
+     * @property {Uint8Array|null} [extraData] RequestHeader extraData
+     * @property {Uint8Array|null} [traceId] RequestHeader traceId
+     * @property {number|null} [spanId] RequestHeader spanId
      */
 
     /**
@@ -540,30 +540,6 @@ $root.RequestHeader = (function() {
                 if (properties[keys[i]] != null)
                     this[keys[i]] = properties[keys[i]];
     }
-
-    /**
-     * RequestHeader traceId.
-     * @member {Uint8Array} traceId
-     * @memberof RequestHeader
-     * @instance
-     */
-    RequestHeader.prototype.traceId = $util.newBuffer([]);
-
-    /**
-     * RequestHeader spanParentId.
-     * @member {number} spanParentId
-     * @memberof RequestHeader
-     * @instance
-     */
-    RequestHeader.prototype.spanParentId = 0;
-
-    /**
-     * RequestHeader spanId.
-     * @member {number} spanId
-     * @memberof RequestHeader
-     * @instance
-     */
-    RequestHeader.prototype.spanId = 0;
 
     /**
      * RequestHeader sequenceNumber.
@@ -590,6 +566,30 @@ $root.RequestHeader = (function() {
     RequestHeader.prototype.methodName = "";
 
     /**
+     * RequestHeader extraData.
+     * @member {Uint8Array} extraData
+     * @memberof RequestHeader
+     * @instance
+     */
+    RequestHeader.prototype.extraData = $util.newBuffer([]);
+
+    /**
+     * RequestHeader traceId.
+     * @member {Uint8Array} traceId
+     * @memberof RequestHeader
+     * @instance
+     */
+    RequestHeader.prototype.traceId = $util.newBuffer([]);
+
+    /**
+     * RequestHeader spanId.
+     * @member {number} spanId
+     * @memberof RequestHeader
+     * @instance
+     */
+    RequestHeader.prototype.spanId = 0;
+
+    /**
      * Creates a new RequestHeader instance using the specified properties.
      * @function create
      * @memberof RequestHeader
@@ -613,18 +613,18 @@ $root.RequestHeader = (function() {
     RequestHeader.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.traceId != null && message.hasOwnProperty("traceId"))
-            writer.uint32(/* id 1, wireType 2 =*/10).bytes(message.traceId);
-        if (message.spanParentId != null && message.hasOwnProperty("spanParentId"))
-            writer.uint32(/* id 2, wireType 0 =*/16).int32(message.spanParentId);
-        if (message.spanId != null && message.hasOwnProperty("spanId"))
-            writer.uint32(/* id 3, wireType 0 =*/24).int32(message.spanId);
         if (message.sequenceNumber != null && message.hasOwnProperty("sequenceNumber"))
-            writer.uint32(/* id 4, wireType 0 =*/32).int32(message.sequenceNumber);
+            writer.uint32(/* id 1, wireType 0 =*/8).int32(message.sequenceNumber);
         if (message.serviceName != null && message.hasOwnProperty("serviceName"))
-            writer.uint32(/* id 5, wireType 2 =*/42).string(message.serviceName);
+            writer.uint32(/* id 2, wireType 2 =*/18).string(message.serviceName);
         if (message.methodName != null && message.hasOwnProperty("methodName"))
-            writer.uint32(/* id 6, wireType 2 =*/50).string(message.methodName);
+            writer.uint32(/* id 3, wireType 2 =*/26).string(message.methodName);
+        if (message.extraData != null && message.hasOwnProperty("extraData"))
+            writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.extraData);
+        if (message.traceId != null && message.hasOwnProperty("traceId"))
+            writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.traceId);
+        if (message.spanId != null && message.hasOwnProperty("spanId"))
+            writer.uint32(/* id 6, wireType 0 =*/48).int32(message.spanId);
         return writer;
     };
 
@@ -660,22 +660,22 @@ $root.RequestHeader = (function() {
             var tag = reader.uint32();
             switch (tag >>> 3) {
             case 1:
-                message.traceId = reader.bytes();
-                break;
-            case 2:
-                message.spanParentId = reader.int32();
-                break;
-            case 3:
-                message.spanId = reader.int32();
-                break;
-            case 4:
                 message.sequenceNumber = reader.int32();
                 break;
-            case 5:
+            case 2:
                 message.serviceName = reader.string();
                 break;
-            case 6:
+            case 3:
                 message.methodName = reader.string();
+                break;
+            case 4:
+                message.extraData = reader.bytes();
+                break;
+            case 5:
+                message.traceId = reader.bytes();
+                break;
+            case 6:
+                message.spanId = reader.int32();
                 break;
             default:
                 reader.skipType(tag & 7);
@@ -712,15 +712,6 @@ $root.RequestHeader = (function() {
     RequestHeader.verify = function verify(message) {
         if (typeof message !== "object" || message === null)
             return "object expected";
-        if (message.traceId != null && message.hasOwnProperty("traceId"))
-            if (!(message.traceId && typeof message.traceId.length === "number" || $util.isString(message.traceId)))
-                return "traceId: buffer expected";
-        if (message.spanParentId != null && message.hasOwnProperty("spanParentId"))
-            if (!$util.isInteger(message.spanParentId))
-                return "spanParentId: integer expected";
-        if (message.spanId != null && message.hasOwnProperty("spanId"))
-            if (!$util.isInteger(message.spanId))
-                return "spanId: integer expected";
         if (message.sequenceNumber != null && message.hasOwnProperty("sequenceNumber"))
             if (!$util.isInteger(message.sequenceNumber))
                 return "sequenceNumber: integer expected";
@@ -730,6 +721,15 @@ $root.RequestHeader = (function() {
         if (message.methodName != null && message.hasOwnProperty("methodName"))
             if (!$util.isString(message.methodName))
                 return "methodName: string expected";
+        if (message.extraData != null && message.hasOwnProperty("extraData"))
+            if (!(message.extraData && typeof message.extraData.length === "number" || $util.isString(message.extraData)))
+                return "extraData: buffer expected";
+        if (message.traceId != null && message.hasOwnProperty("traceId"))
+            if (!(message.traceId && typeof message.traceId.length === "number" || $util.isString(message.traceId)))
+                return "traceId: buffer expected";
+        if (message.spanId != null && message.hasOwnProperty("spanId"))
+            if (!$util.isInteger(message.spanId))
+                return "spanId: integer expected";
         return null;
     };
 
@@ -745,21 +745,24 @@ $root.RequestHeader = (function() {
         if (object instanceof $root.RequestHeader)
             return object;
         var message = new $root.RequestHeader();
-        if (object.traceId != null)
-            if (typeof object.traceId === "string")
-                $util.base64.decode(object.traceId, message.traceId = $util.newBuffer($util.base64.length(object.traceId)), 0);
-            else if (object.traceId.length)
-                message.traceId = object.traceId;
-        if (object.spanParentId != null)
-            message.spanParentId = object.spanParentId | 0;
-        if (object.spanId != null)
-            message.spanId = object.spanId | 0;
         if (object.sequenceNumber != null)
             message.sequenceNumber = object.sequenceNumber | 0;
         if (object.serviceName != null)
             message.serviceName = String(object.serviceName);
         if (object.methodName != null)
             message.methodName = String(object.methodName);
+        if (object.extraData != null)
+            if (typeof object.extraData === "string")
+                $util.base64.decode(object.extraData, message.extraData = $util.newBuffer($util.base64.length(object.extraData)), 0);
+            else if (object.extraData.length)
+                message.extraData = object.extraData;
+        if (object.traceId != null)
+            if (typeof object.traceId === "string")
+                $util.base64.decode(object.traceId, message.traceId = $util.newBuffer($util.base64.length(object.traceId)), 0);
+            else if (object.traceId.length)
+                message.traceId = object.traceId;
+        if (object.spanId != null)
+            message.spanId = object.spanId | 0;
         return message;
     };
 
@@ -777,6 +780,16 @@ $root.RequestHeader = (function() {
             options = {};
         var object = {};
         if (options.defaults) {
+            object.sequenceNumber = 0;
+            object.serviceName = "";
+            object.methodName = "";
+            if (options.bytes === String)
+                object.extraData = "";
+            else {
+                object.extraData = [];
+                if (options.bytes !== Array)
+                    object.extraData = $util.newBuffer(object.extraData);
+            }
             if (options.bytes === String)
                 object.traceId = "";
             else {
@@ -784,24 +797,20 @@ $root.RequestHeader = (function() {
                 if (options.bytes !== Array)
                     object.traceId = $util.newBuffer(object.traceId);
             }
-            object.spanParentId = 0;
             object.spanId = 0;
-            object.sequenceNumber = 0;
-            object.serviceName = "";
-            object.methodName = "";
         }
-        if (message.traceId != null && message.hasOwnProperty("traceId"))
-            object.traceId = options.bytes === String ? $util.base64.encode(message.traceId, 0, message.traceId.length) : options.bytes === Array ? Array.prototype.slice.call(message.traceId) : message.traceId;
-        if (message.spanParentId != null && message.hasOwnProperty("spanParentId"))
-            object.spanParentId = message.spanParentId;
-        if (message.spanId != null && message.hasOwnProperty("spanId"))
-            object.spanId = message.spanId;
         if (message.sequenceNumber != null && message.hasOwnProperty("sequenceNumber"))
             object.sequenceNumber = message.sequenceNumber;
         if (message.serviceName != null && message.hasOwnProperty("serviceName"))
             object.serviceName = message.serviceName;
         if (message.methodName != null && message.hasOwnProperty("methodName"))
             object.methodName = message.methodName;
+        if (message.extraData != null && message.hasOwnProperty("extraData"))
+            object.extraData = options.bytes === String ? $util.base64.encode(message.extraData, 0, message.extraData.length) : options.bytes === Array ? Array.prototype.slice.call(message.extraData) : message.extraData;
+        if (message.traceId != null && message.hasOwnProperty("traceId"))
+            object.traceId = options.bytes === String ? $util.base64.encode(message.traceId, 0, message.traceId.length) : options.bytes === Array ? Array.prototype.slice.call(message.traceId) : message.traceId;
+        if (message.spanId != null && message.hasOwnProperty("spanId"))
+            object.spanId = message.spanId;
         return object;
     };
 
@@ -849,8 +858,8 @@ $root.ResponseHeader = (function() {
      * Properties of a ResponseHeader.
      * @exports IResponseHeader
      * @interface IResponseHeader
-     * @property {number|null} [nextSpanId] ResponseHeader nextSpanId
      * @property {number|null} [sequenceNumber] ResponseHeader sequenceNumber
+     * @property {number|null} [nextSpanId] ResponseHeader nextSpanId
      * @property {number|null} [errorCode] ResponseHeader errorCode
      */
 
@@ -870,20 +879,20 @@ $root.ResponseHeader = (function() {
     }
 
     /**
-     * ResponseHeader nextSpanId.
-     * @member {number} nextSpanId
-     * @memberof ResponseHeader
-     * @instance
-     */
-    ResponseHeader.prototype.nextSpanId = 0;
-
-    /**
      * ResponseHeader sequenceNumber.
      * @member {number} sequenceNumber
      * @memberof ResponseHeader
      * @instance
      */
     ResponseHeader.prototype.sequenceNumber = 0;
+
+    /**
+     * ResponseHeader nextSpanId.
+     * @member {number} nextSpanId
+     * @memberof ResponseHeader
+     * @instance
+     */
+    ResponseHeader.prototype.nextSpanId = 0;
 
     /**
      * ResponseHeader errorCode.
@@ -917,10 +926,10 @@ $root.ResponseHeader = (function() {
     ResponseHeader.encode = function encode(message, writer) {
         if (!writer)
             writer = $Writer.create();
-        if (message.nextSpanId != null && message.hasOwnProperty("nextSpanId"))
-            writer.uint32(/* id 1, wireType 0 =*/8).int32(message.nextSpanId);
         if (message.sequenceNumber != null && message.hasOwnProperty("sequenceNumber"))
-            writer.uint32(/* id 2, wireType 0 =*/16).int32(message.sequenceNumber);
+            writer.uint32(/* id 1, wireType 0 =*/8).int32(message.sequenceNumber);
+        if (message.nextSpanId != null && message.hasOwnProperty("nextSpanId"))
+            writer.uint32(/* id 2, wireType 0 =*/16).int32(message.nextSpanId);
         if (message.errorCode != null && message.hasOwnProperty("errorCode"))
             writer.uint32(/* id 3, wireType 0 =*/24).int32(message.errorCode);
         return writer;
@@ -958,10 +967,10 @@ $root.ResponseHeader = (function() {
             var tag = reader.uint32();
             switch (tag >>> 3) {
             case 1:
-                message.nextSpanId = reader.int32();
+                message.sequenceNumber = reader.int32();
                 break;
             case 2:
-                message.sequenceNumber = reader.int32();
+                message.nextSpanId = reader.int32();
                 break;
             case 3:
                 message.errorCode = reader.int32();
@@ -1001,12 +1010,12 @@ $root.ResponseHeader = (function() {
     ResponseHeader.verify = function verify(message) {
         if (typeof message !== "object" || message === null)
             return "object expected";
-        if (message.nextSpanId != null && message.hasOwnProperty("nextSpanId"))
-            if (!$util.isInteger(message.nextSpanId))
-                return "nextSpanId: integer expected";
         if (message.sequenceNumber != null && message.hasOwnProperty("sequenceNumber"))
             if (!$util.isInteger(message.sequenceNumber))
                 return "sequenceNumber: integer expected";
+        if (message.nextSpanId != null && message.hasOwnProperty("nextSpanId"))
+            if (!$util.isInteger(message.nextSpanId))
+                return "nextSpanId: integer expected";
         if (message.errorCode != null && message.hasOwnProperty("errorCode"))
             if (!$util.isInteger(message.errorCode))
                 return "errorCode: integer expected";
@@ -1025,10 +1034,10 @@ $root.ResponseHeader = (function() {
         if (object instanceof $root.ResponseHeader)
             return object;
         var message = new $root.ResponseHeader();
-        if (object.nextSpanId != null)
-            message.nextSpanId = object.nextSpanId | 0;
         if (object.sequenceNumber != null)
             message.sequenceNumber = object.sequenceNumber | 0;
+        if (object.nextSpanId != null)
+            message.nextSpanId = object.nextSpanId | 0;
         if (object.errorCode != null)
             message.errorCode = object.errorCode | 0;
         return message;
@@ -1048,14 +1057,14 @@ $root.ResponseHeader = (function() {
             options = {};
         var object = {};
         if (options.defaults) {
-            object.nextSpanId = 0;
             object.sequenceNumber = 0;
+            object.nextSpanId = 0;
             object.errorCode = 0;
         }
-        if (message.nextSpanId != null && message.hasOwnProperty("nextSpanId"))
-            object.nextSpanId = message.nextSpanId;
         if (message.sequenceNumber != null && message.hasOwnProperty("sequenceNumber"))
             object.sequenceNumber = message.sequenceNumber;
+        if (message.nextSpanId != null && message.hasOwnProperty("nextSpanId"))
+            object.nextSpanId = message.nextSpanId;
         if (message.errorCode != null && message.hasOwnProperty("errorCode"))
             object.errorCode = message.errorCode;
         return object;

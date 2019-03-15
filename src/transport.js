@@ -1,17 +1,23 @@
 "use strict";
 
 var packetHeaderSize = 4;
+var maxWebSocketFramePayloadSize = 1 << 16;
 
 function Transport(serverAddress) {
     var webSocket = new WebSocket(serverAddress);
     this.webSocket = webSocket;
+    this.pendingMessageCountPlusOne = 1;
 
     webSocket.onopen = function(event) {
         this.onConnect();
     }.bind(this);
 
     webSocket.onclose = function(event) {
-        this.onDisconnect();
+        --this.pendingMessageCountPlusOne;
+
+        if (this.pendingMessageCountPlusOne == 0) {
+            this.onDisconnect();
+        }
     }.bind(this);
 
     webSocket.onerror = function(event) {
@@ -81,8 +87,15 @@ function Transport(serverAddress) {
             if (packetPayloads.length >= 1) {
                 this.onWrite(packetPayloads);
             }
+
+            --this.pendingMessageCountPlusOne;
+
+            if (this.pendingMessageCountPlusOne == 0) {
+                this.onDisconnect();
+            }
         }.bind(this);
 
+        ++this.pendingMessageCountPlusOne;
         fileReader.readAsArrayBuffer(event.data);
     }.bind(this);
 }
@@ -97,7 +110,19 @@ Transport.prototype.write = function(packetPayload) {
     }
 
     packet.set(packetPayload, packetHeaderSize);
-    this.webSocket.send(packet);
+    var i = 0;
+
+    while (true) {
+        var j = i + maxWebSocketFramePayloadSize;
+
+        if (j >= packet.length) {
+            this.webSocket.send(packet.subarray(i));
+            break
+        }
+
+        this.webSocket.send(packet.subarray(i, j));
+        i = j;
+    }
 };
 
 Transport.prototype.writeInBatch = function(packetPayloads) {
@@ -126,7 +151,19 @@ Transport.prototype.writeInBatch = function(packetPayloads) {
         packet = packet.subarray(packetHeaderSize + packetPayload.length);
     });
 
-    this.webSocket.send(packets);
+    var i = 0;
+
+    while (true) {
+        var j = i + maxWebSocketFramePayloadSize;
+
+        if (j >= packets.length) {
+            this.webSocket.send(packets.subarray(i));
+            break
+        }
+
+        this.webSocket.send(packets.subarray(i, j));
+        i = j;
+    }
 };
 
 Transport.prototype.close = function() {

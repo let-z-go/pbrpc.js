@@ -51,8 +51,18 @@ function processService(serviceFullName, serviceName, methods) {
 function generateServiceClient(serviceFullName, serviceName, methods) {
     console.log(heredoc(function() {/*
 
-function %sServiceClient(channel) {
+function %sServiceClient(channel, extraData, autoRetry) {
+    if (extraData == undefined) {
+        extraData = new Uint8Array(0);
+    }
+
+    if (autoRetry == undefined) {
+        autoRetry = false;
+    }
+
     this.channel = channel;
+    this.extraData = extraData;
+    this.autoRetry = autoRetry;
 }
 */}), serviceName);
 
@@ -61,11 +71,7 @@ function %sServiceClient(channel) {
 
         console.log(heredoc(function() {/*
 
-%sServiceClient.prototype.%s = function(request, callback, autoRetry) {
-    if (autoRetry == undefined) {
-        autoRetry = false;
-    }
-
+%sServiceClient.prototype.%s = function(request, callback) {
     var requestType = root.%s;
     var errorMessage = requestType.verify(request);
 
@@ -74,10 +80,10 @@ function %sServiceClient(channel) {
     }
 
     var requestPayload = requestType.fromObject(request);
-    var onReturnResultByRemote = this.channel.onCallMethodByLocal("%s", "%s", requestPayload);
     var requestPayloadData = requestType.encode(requestPayload).finish();
+    var onReturnResultByRemote;
 
-    this.channel.callMethod("%s", "%s", requestPayloadData, autoRetry, function(errorCode, responsePayloadData) {
+    var context = this.channel.callMethod("%s", "%s", this.extraData, requestPayloadData, this.autoRetry, function(errorCode, responsePayloadData) {
         var response;
 
         if (errorCode == 0) {
@@ -94,8 +100,10 @@ function %sServiceClient(channel) {
 
         callback(errorCode, response);
     });
+
+    onReturnResultByRemote = this.channel.onCallMethodByLocal(context, requestPayload);
 };
-*/}), serviceName, methodName, method.requestType, serviceName, methodName, serviceName, methodName, method.responseType);
+*/}), serviceName, methodName, method.requestType, serviceName, methodName, method.responseType);
     });
 
     console.log(heredoc(function() {/*
@@ -119,11 +127,11 @@ function %sServiceHandler() {
         var method = methods[methodName];
 
         console.log(heredoc(function() {/*
-    "%s": function(channel, requestPayloadData, responseWriter) {
+    "%s": function(channel, context, requestPayloadData, responseWriter) {
         var requestType = root.%s;
         var requestPayload = requestType.decode(requestPayloadData);
         var request = requestType.toObject(requestPayload, {defaults: true});
-        var onReturnResultByLocal = channel.onCallMethodByRemote(this.name, "%s", request);
+        var onReturnResultByLocal = channel.onCallMethodByRemote(context, request);
 
         this.%s(request, function(errorCode, response) {
             var responsePayloadData;
@@ -154,7 +162,7 @@ function %sServiceHandler() {
             responseWriter(errorCode, responsePayloadData);
         });
     },
-*/}), methodName, method.requestType, methodName, methodName, method.responseType);
+*/}), methodName, method.requestType, methodName, method.responseType);
     });
 
     console.log(heredoc(function() {/*
@@ -165,7 +173,20 @@ exports.%sServiceHandler = %sServiceHandler;
 }
 
 function heredoc(f) {
-    return f.toString().slice(16, -4);
+    var s = f.toString()
+    var i = s.indexOf("/*\n")
+
+    if (i < 0) {
+        throw Error("invalid heredoc: " + s)
+    }
+
+    var j = s.lastIndexOf("\n*/")
+
+    if (j < 0) {
+        throw Error("invalid heredoc: " + s)
+    }
+
+    return s.slice(i + 3, j);
 }
 
 function main() {

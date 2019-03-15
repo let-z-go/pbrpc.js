@@ -1,6 +1,6 @@
 {
   "name": "pbrpc",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "PBRPC for JavaScript",
   "main": "index.js",
   "bin": {
