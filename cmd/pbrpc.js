@@ -51,7 +51,11 @@ function processService(serviceFullName, serviceName, methods) {
 function generateServiceClient(serviceFullName, serviceName, methods) {
     console.log(heredoc(function() {/*
 
-function %sServiceClient(channel, extraData, autoRetry) {
+function %sServiceClient(channel, fifoKey, extraData, autoRetry) {
+    if (fifoKey == undefined) {
+        fifoKey = "";
+    }
+
     if (extraData == undefined) {
         extraData = new Uint8Array(0);
     }
@@ -61,6 +65,7 @@ function %sServiceClient(channel, extraData, autoRetry) {
     }
 
     this.channel = channel;
+    this.fifoKey = fifoKey;
     this.extraData = extraData;
     this.autoRetry = autoRetry;
 }
@@ -83,7 +88,7 @@ function %sServiceClient(channel, extraData, autoRetry) {
     var requestPayloadData = requestType.encode(requestPayload).finish();
     var onReturnResultByRemote;
 
-    var context = this.channel.callMethod("%s", "%s", this.extraData, requestPayloadData, this.autoRetry, function(errorCode, responsePayloadData) {
+    var context = this.channel.callMethod("%s", "%s", this.fifoKey, this.extraData, requestPayloadData, this.autoRetry, function(errorCode, responsePayloadData) {
         var response;
 
         if (errorCode == 0) {

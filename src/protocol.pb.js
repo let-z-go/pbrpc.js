@@ -521,6 +521,7 @@ $root.RequestHeader = (function() {
      * @property {number|null} [sequenceNumber] RequestHeader sequenceNumber
      * @property {string|null} [serviceName] RequestHeader serviceName
      * @property {string|null} [methodName] RequestHeader methodName
+     * @property {string|null} [fifoKey] RequestHeader fifoKey
      * @property {Uint8Array|null} [extraData] RequestHeader extraData
      * @property {Uint8Array|null} [traceId] RequestHeader traceId
      * @property {number|null} [spanId] RequestHeader spanId
@@ -564,6 +565,14 @@ $root.RequestHeader = (function() {
      * @instance
      */
     RequestHeader.prototype.methodName = "";
+
+    /**
+     * RequestHeader fifoKey.
+     * @member {string} fifoKey
+     * @memberof RequestHeader
+     * @instance
+     */
+    RequestHeader.prototype.fifoKey = "";
 
     /**
      * RequestHeader extraData.
@@ -619,12 +628,14 @@ $root.RequestHeader = (function() {
             writer.uint32(/* id 2, wireType 2 =*/18).string(message.serviceName);
         if (message.methodName != null && message.hasOwnProperty("methodName"))
             writer.uint32(/* id 3, wireType 2 =*/26).string(message.methodName);
+        if (message.fifoKey != null && message.hasOwnProperty("fifoKey"))
+            writer.uint32(/* id 4, wireType 2 =*/34).string(message.fifoKey);
         if (message.extraData != null && message.hasOwnProperty("extraData"))
-            writer.uint32(/* id 4, wireType 2 =*/34).bytes(message.extraData);
+            writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.extraData);
         if (message.traceId != null && message.hasOwnProperty("traceId"))
-            writer.uint32(/* id 5, wireType 2 =*/42).bytes(message.traceId);
+            writer.uint32(/* id 6, wireType 2 =*/50).bytes(message.traceId);
         if (message.spanId != null && message.hasOwnProperty("spanId"))
-            writer.uint32(/* id 6, wireType 0 =*/48).int32(message.spanId);
+            writer.uint32(/* id 7, wireType 0 =*/56).int32(message.spanId);
         return writer;
     };
 
@@ -669,12 +680,15 @@ $root.RequestHeader = (function() {
                 message.methodName = reader.string();
                 break;
             case 4:
-                message.extraData = reader.bytes();
+                message.fifoKey = reader.string();
                 break;
             case 5:
-                message.traceId = reader.bytes();
+                message.extraData = reader.bytes();
                 break;
             case 6:
+                message.traceId = reader.bytes();
+                break;
+            case 7:
                 message.spanId = reader.int32();
                 break;
             default:
@@ -721,6 +735,9 @@ $root.RequestHeader = (function() {
         if (message.methodName != null && message.hasOwnProperty("methodName"))
             if (!$util.isString(message.methodName))
                 return "methodName: string expected";
+        if (message.fifoKey != null && message.hasOwnProperty("fifoKey"))
+            if (!$util.isString(message.fifoKey))
+                return "fifoKey: string expected";
         if (message.extraData != null && message.hasOwnProperty("extraData"))
             if (!(message.extraData && typeof message.extraData.length === "number" || $util.isString(message.extraData)))
                 return "extraData: buffer expected";
@@ -751,6 +768,8 @@ $root.RequestHeader = (function() {
             message.serviceName = String(object.serviceName);
         if (object.methodName != null)
             message.methodName = String(object.methodName);
+        if (object.fifoKey != null)
+            message.fifoKey = String(object.fifoKey);
         if (object.extraData != null)
             if (typeof object.extraData === "string")
                 $util.base64.decode(object.extraData, message.extraData = $util.newBuffer($util.base64.length(object.extraData)), 0);
@@ -783,6 +802,7 @@ $root.RequestHeader = (function() {
             object.sequenceNumber = 0;
             object.serviceName = "";
             object.methodName = "";
+            object.fifoKey = "";
             if (options.bytes === String)
                 object.extraData = "";
             else {
@@ -805,6 +825,8 @@ $root.RequestHeader = (function() {
             object.serviceName = message.serviceName;
         if (message.methodName != null && message.hasOwnProperty("methodName"))
             object.methodName = message.methodName;
+        if (message.fifoKey != null && message.hasOwnProperty("fifoKey"))
+            object.fifoKey = message.fifoKey;
         if (message.extraData != null && message.hasOwnProperty("extraData"))
             object.extraData = options.bytes === String ? $util.base64.encode(message.extraData, 0, message.extraData.length) : options.bytes === Array ? Array.prototype.slice.call(message.extraData) : message.extraData;
         if (message.traceId != null && message.hasOwnProperty("traceId"))

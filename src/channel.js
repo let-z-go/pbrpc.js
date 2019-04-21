@@ -6,7 +6,7 @@ var UUID = require("./uuid").UUID;
 var Transport = require("./transport").Transport;
 var Queue = require("./queue").Queue;
 
-var defaultChannelTimeout = 15000;
+var defaultChannelTimeout = 45000;
 var minChannelWindowSize = 1;
 var maxChannelWindowSize = 1 << 20;
 
@@ -68,10 +68,11 @@ Channel.prototype.close = function() {
     this.transport.close();
 };
 
-Channel.prototype.callMethod = function(serviceName, methodName, extraData, requestPayloadData, autoRetryMethodCall, callback) {
+Channel.prototype.callMethod = function(serviceName, methodName, fifoKey, extraData, requestPayloadData, autoRetryMethodCall, callback) {
     var context = {
         serviceName: serviceName,
         methodName: methodName,
+        fifoKey: fifoKey,
         extraData: extraData,
         traceID: UUID.v4(),
         spanParentID: 0,
@@ -90,6 +91,7 @@ Channel.prototype.callMethod = function(serviceName, methodName, extraData, requ
     this.methodCalls.appendNode({
         serviceName: context.serviceName,
         methodName: context.methodName,
+        fifoKey: context.fifoKey,
         extraData: context.extraData,
         traceID: context.traceID,
         spanID: context.spanID,
@@ -148,6 +150,15 @@ Channel.prototype.connect = function(reconnectionDelay) {
                         ++completedMethodCallCount;
                     }
                 }.bind(this));
+
+                methodCalls.sort(function (methodCall1, methodCall2) {
+                    var x = methodCall1.sequenceNumber;
+                    var y = methodCall2.sequenceNumber;
+                    var z = Math.abs(x - y) & 0x40000000;
+                    x ^= z;
+                    y ^= z;
+                    return x - y;
+                });
 
                 this.methodCalls.discardNodeRemovals(methodCalls);
                 this.methodCalls.commitNodeRemovals(completedMethodCallCount);
@@ -266,6 +277,7 @@ Channel.prototype.receiveMessages = function(data) {
             var context = {
                 serviceName: requestHeader.serviceName,
                 methodName: requestHeader.methodName,
+                fifoKey: requestHeader.fifoKey,
                 extraData: requestHeader.extraData,
                 traceID: UUID.fromBytes(requestHeader.traceId),
                 spanParentID: requestHeader.spanId,
@@ -369,6 +381,7 @@ Channel.prototype.sendMessages = function(methodCalls, resultReturns) {
             sequenceNumber: methodCall.sequenceNumber,
             serviceName: methodCall.serviceName,
             methodName: methodCall.methodName,
+            fifoKey: methodCall.fifoKey,
             extraData: methodCall.extraData,
             traceId: methodCall.traceID.bytes,
             spanId: methodCall.spanID,
@@ -439,7 +452,7 @@ Channel.prototype.getMinHeartbeatInterval = function() {
 
 Channel.prototype.getSequenceNumber = function() {
     var sequenceNumber = this.nextSequenceNumber;
-    this.nextSequenceNumber = (this.nextSequenceNumber + 1) & 0xFFFFFFF;
+    this.nextSequenceNumber = (this.nextSequenceNumber + 1) & 0x7FFFFFFF;
     return sequenceNumber;
 };
 
