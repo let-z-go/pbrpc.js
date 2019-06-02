@@ -53,11 +53,11 @@ function generateServiceClient(serviceFullName, serviceName, methods) {
 
 function %sServiceClient(channel, fifoKey, extraData, autoRetry) {
     if (fifoKey == undefined) {
-        fifoKey = "";
+        fifoKey = null;
     }
 
     if (extraData == undefined) {
-        extraData = new Uint8Array(0);
+        extraData = null;
     }
 
     if (autoRetry == undefined) {
@@ -88,10 +88,10 @@ function %sServiceClient(channel, fifoKey, extraData, autoRetry) {
     var requestPayloadData = requestType.encode(requestPayload).finish();
     var onReturnResultByRemote;
 
-    var context = this.channel.callMethod("%s", "%s", this.fifoKey, this.extraData, requestPayloadData, this.autoRetry, function(errorCode, responsePayloadData) {
+    var context = this.channel.callMethod("%s", "%s", this.fifoKey, this.extraData, requestPayloadData, this.autoRetry, function(error, responsePayloadData) {
         var response;
 
-        if (errorCode == 0) {
+        if (error == null) {
             var responseType = root.%s;
             var responsePayload = responseType.decode(responsePayloadData);
             response = responseType.toObject(responsePayload, {defaults: true});
@@ -100,10 +100,10 @@ function %sServiceClient(channel, fifoKey, extraData, autoRetry) {
         }
 
         if (onReturnResultByRemote != null) {
-            onReturnResultByRemote(errorCode, response);
+            onReturnResultByRemote(error, response);
         }
 
-        callback(errorCode, response);
+        callback(error, response);
     });
 
     onReturnResultByRemote = this.channel.onCallMethodByLocal(context, requestPayload);
@@ -138,10 +138,10 @@ function %sServiceHandler() {
         var request = requestType.toObject(requestPayload, {defaults: true});
         var onReturnResultByLocal = channel.onCallMethodByRemote(context, request);
 
-        this.%s(request, function(errorCode, response) {
+        this.%s(request, function(error, response) {
             var responsePayloadData;
 
-            if (errorCode == 0) {
+            if (error == null) {
                 var responseType = root.%s;
                 var errorMessage = responseType.verify(response);
 
@@ -158,13 +158,13 @@ function %sServiceHandler() {
                 responsePayloadData = responseType.encode(responsePayload).finish();
             } else {
                 if (onReturnResultByLocal != null) {
-                    onReturnResultByLocal(errorCode, null);
+                    onReturnResultByLocal(error, null);
                 }
 
                 responsePayloadData = null;
             }
 
-            responseWriter(errorCode, responsePayloadData);
+            responseWriter(error, responsePayloadData);
         });
     },
 */}), methodName, method.requestType, methodName, method.responseType);

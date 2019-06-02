@@ -80,12 +80,13 @@ Channel.prototype.callMethod = function(serviceName, methodName, fifoKey, extraD
     };
 
     if (!this.isConnected && !this.autoReconnect) {
-        setTimeout(callback.bind(null, errorChannelClosed, null), 0);
+        var error = new Error(errorChannelClosed);
+        setTimeout(callback.bind(null, error, null), 0);
         return context;
     }
 
     if (callback == null) {
-        callback = function(errorCode, responsePayloadData) {};
+        callback = function(error, responsePayloadData) {};
     }
 
     this.methodCalls.appendNode({
@@ -146,7 +147,8 @@ Channel.prototype.connect = function(reconnectionDelay) {
                     if (methodCall.autoRetry) {
                         methodCalls.push(methodCall);
                     } else {
-                        setTimeout(methodCall.callback.bind(null, errorChannelBroken, null), 0);
+                        var error = new Error(errorChannelBroken);
+                        setTimeout(methodCall.callback.bind(null, error, null), 0);
                         ++completedMethodCallCount;
                     }
                 }.bind(this));
@@ -167,20 +169,21 @@ Channel.prototype.connect = function(reconnectionDelay) {
             var allMethodCalls = this.methodCalls.reset();
 
             allMethodCalls.forEach(function(methodCall) {
-                setTimeout(methodCall.callback.bind(null, errorChannelClosed, null), 0);
+                var error = new Error(errorChannelClosed);
+                setTimeout(methodCall.callback.bind(null, error, null), 0);
             });
 
             Object.keys(this.pendingMethodCalls).forEach(function(sequenceNumber) {
                 var methodCall = this.pendingMethodCalls[sequenceNumber];
-                var errorCode;
+                var error;
 
                 if (methodCall.autoRetry) {
-                    errorCode = errorChannelClosed;
+                    error = new MyError(errorChannelClosed);
                 } else {
-                    errorCode = errorChannelBroken;
+                    error = new MyError(errorChannelBroken);
                 }
 
-                setTimeout(methodCall.callback.bind(null, errorCode, null), 0);
+                setTimeout(methodCall.callback.bind(null, error, null), 0);
             }.bind(this));
         }
 
@@ -286,7 +289,7 @@ Channel.prototype.receiveMessages = function(data) {
 
             var serviceHandler = null;
             var methodHandler = null;
-            var errorCode;
+            var error;
 
             if (context.serviceName in this.serviceHandlers
                 && (serviceHandler = this.serviceHandlers[context.serviceName], context.methodName in serviceHandler.methodTable)
@@ -296,11 +299,30 @@ Channel.prototype.receiveMessages = function(data) {
                 if (this.pendingResultReturnCount <= this.incomingWindowSize) {
                     var resultReturns = this.resultReturns;
 
-                    methodHandler.call(serviceHandler, this, context, messagePayloadData, function(errorCode, responsePayloadData) {
+                    methodHandler.call(serviceHandler, this, context, messagePayloadData, function(error, responsePayloadData) {
+                        var errorCode;
+                        var errorDesc;
+
+                        if (error == null) {
+                            errorCode = null;
+                            errorDesc = null;
+                        } else {
+                            responsePayloadData = null;
+
+                            if (error instanceof MyError) {
+                                errorCode = error.code;
+                                errorDesc = error.message;
+                            } else {
+                                errorCode = errorInternalServer;
+                                errorDesc = errorDescs[errorInternalServer];
+                            }
+                        }
+
                         resultReturns.appendNode({
                             sequenceNumber: requestHeader.sequenceNumber,
                             nextSpanID: context.spanID + 2,
                             errorCode: errorCode,
+                            errorDesc: errorDesc,
                             responsePayloadData: responsePayloadData,
                         });
                     }.bind(this));
@@ -308,25 +330,26 @@ Channel.prototype.receiveMessages = function(data) {
                     break;
                 }
 
-                errorCode = errorTooManyRequests;
+                error = new MyError(errorTooManyRequests);
             } else {
                 if (serviceHandler != null && methodHandler != null) {
-                    errorCode = errorNotImplemented;
+                    error = new MyError(errorNotImplemented);
                 } else {
-                    errorCode = errorNotFound;
+                    error = new MyError(errorNotFound);
                 }
             }
 
             var onReturnResultByLocal = this.onCallMethodByRemote(context, {});
 
             if (onReturnResultByLocal != null) {
-                onReturnResultByLocal(errorCode, null);
+                onReturnResultByLocal(error, null);
             }
 
             this.resultReturns.appendNode({
                 sequenceNumber: requestHeader.sequenceNumber,
                 nextSpanID: context.spanID + 2,
-                errorCode: errorCode,
+                errorCode: error.code,
+                errorDesc: error.message,
                 responsePayloadData: null,
             });
 
@@ -339,9 +362,10 @@ Channel.prototype.receiveMessages = function(data) {
                 delete this.pendingMethodCalls[responseHeader.sequenceNumber];
 
                 if (responseHeader.errorCode == 0) {
-                    setTimeout(methodCall.callback.bind(null, 0, messagePayloadData), 0);
+                    setTimeout(methodCall.callback.bind(null, null, messagePayloadData), 0);
                 } else {
-                    setTimeout(methodCall.callback.bind(null, responseHeader.errorCode, null), 0);
+                    var error = new MyError(responseHeader.errorCode, responseHeader.errorDesc);
+                    setTimeout(methodCall.callback.bind(null, error, null), 0);
                 }
 
                 ++completedMethodCallCount;
@@ -401,6 +425,7 @@ Channel.prototype.sendMessages = function(methodCalls, resultReturns) {
             sequenceNumber: resultReturn.sequenceNumber,
             nextSpanId: resultReturn.nextSpanID,
             errorCode: resultReturn.errorCode,
+            errorDesc: resultReturn.errorDesc,
         }).finish();
 
         if (resultReturn.errorCode == 0) {
@@ -466,11 +491,11 @@ Channel.prototype.onHeartbeatFromLocal = function() {
 Channel.prototype.onCallMethodByLocal = function(context, requestPayload) {
     var startTime = Date.now();
 
-    return function(errorCode, response) {
+    return function(error, response) {
         var endTime = Date.now();
         var duration = (endTime - startTime) / 1000;
 
-        if (errorCode == 0) {
+        if (error == null) {
             console.info(
                 "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, response=%o",
                 context.traceID.toString(),
@@ -484,21 +509,22 @@ Channel.prototype.onCallMethodByLocal = function(context, requestPayload) {
         } else {
             var log;
 
-            if (errorCode < errorUserDefined) {
+            if (error.code < errorUserDefined) {
                 log = console.error;
             } else {
                 log = console.info;
             }
 
             log(
-                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, errorCode=%d",
+                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, errorCode=%d, errorDesc=%s",
                 context.traceID.toString(),
                 context.spanID,
                 context.serviceName,
                 context.methodName,
                 duration,
                 requestPayload,
-                errorCode,
+                error.code,
+                JSON.stringify(error.message),
             );
         }
     };
@@ -511,11 +537,11 @@ Channel.prototype.onHeartbeatFromRemote = function() {
 Channel.prototype.onCallMethodByRemote = function(context, request) {
     var startTime = Date.now();
 
-    return function(errorCode, responsePayload) {
+    return function(error, responsePayload) {
         var endTime = Date.now();
         var duration = (endTime - startTime) / 1000;
 
-        if (errorCode == 0) {
+        if (error == null) {
             console.info(
                 "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, responsePayload=%o",
                 context.traceID.toString(),
@@ -529,25 +555,56 @@ Channel.prototype.onCallMethodByRemote = function(context, request) {
         } else {
             var log;
 
-            if (errorCode < errorUserDefined) {
+            if (error.code < errorUserDefined) {
                 log = console.error;
             } else {
                 log = console.info;
             }
 
             log(
-                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d",
+                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s",
                 context.traceID.toString(),
                 context.spanID,
                 context.serviceName,
                 context.methodName,
                 duration,
                 request,
-                errorCode,
+                error.code,
+                JSON.stringify(error.message),
             );
         }
     };
 };
+
+function MyError(code, desc) {
+    if (desc == null) {
+        if (code in errorDescs) {
+            desc = errorDescs[code];
+        } else {
+            desc = "error " + code.toString();
+        }
+    }
+
+    this.code = code;
+    this.message = desc;
+}
+
+MyError.prototype = new Error();
+
+var errorDescs = {
+    errorChannelBroken: "channel broken",
+    errorChannelClosed: "channel closed",
+    errorTooManyRequests: "too many requests",
+    errorNotFound: "not found",
+    errorBadRequest: "bad request",
+    errorNotImplemented: "not implemented",
+    errorInternalServer: "internal server",
+    errorUserDefined: "user defined",
+};
+
+function registerError(errorCode, errorDesc) {
+    errorDescs[errorCode] = errorDesc;
+}
 
 module.exports = {
     errorChannelBroken: errorChannelBroken,
@@ -560,4 +617,7 @@ module.exports = {
     errorUserDefined: errorUserDefined,
 
     Channel: Channel,
+    Error: MyError,
+
+    registerError: registerError,
 };
