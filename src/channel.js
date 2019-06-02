@@ -80,7 +80,7 @@ Channel.prototype.callMethod = function(serviceName, methodName, fifoKey, extraD
     };
 
     if (!this.isConnected && !this.autoReconnect) {
-        var error = new Error(errorChannelClosed);
+        var error = new MyError(errorChannelClosed);
         setTimeout(callback.bind(null, error, null), 0);
         return context;
     }
@@ -105,13 +105,13 @@ Channel.prototype.callMethod = function(serviceName, methodName, fifoKey, extraD
 };
 
 Channel.prototype.connect = function(reconnectionDelay) {
-    console.info("[pbrpc] connecting to [%s]...", this.serverAddress)
-    var transport = new Transport(this.serverAddress);
-    this.transport = transport;
-    var greeterCallback = null;
+    var greeter = function(handshake, greeterCallback2) {
+        console.info("[pbrpc] connecting to [%s]...", this.serverAddress)
+        var transport = new Transport(this.serverAddress);
+        this.transport = transport;
+        var greeterCallback = null;
 
-    transport.onConnect = function() {
-        var greeter = function(handshake, greeterCallback2) {
+        transport.onConnect = function() {
             var greeting = {
                 channel: {
                     timeout: this.timeout,
@@ -131,132 +131,132 @@ Channel.prototype.connect = function(reconnectionDelay) {
             greeterCallback = greeterCallback2;
         }.bind(this);
 
-        this.handshaker(greeter);
-    }.bind(this);
+        transport.onDisconnect = function() {
+            if (this.autoReconnect) {
+                if (this.isConnected) {
+                    this.methodCalls.suspendNodeProcessor();
+                    var methodCalls = [];
+                    var completedMethodCallCount = 0;
 
-    transport.onDisconnect = function() {
-        if (this.autoReconnect) {
-            if (this.isConnected) {
-                this.methodCalls.suspendNodeProcessor();
-                var methodCalls = [];
-                var completedMethodCallCount = 0;
+                    Object.keys(this.pendingMethodCalls).forEach(function(sequenceNumber) {
+                        var methodCall = this.pendingMethodCalls[sequenceNumber];
+
+                        if (methodCall.autoRetry) {
+                            methodCalls.push(methodCall);
+                        } else {
+                            var error = new MyError(errorChannelBroken);
+                            setTimeout(methodCall.callback.bind(null, error, null), 0);
+                            ++completedMethodCallCount;
+                        }
+                    }.bind(this));
+
+                    methodCalls.sort(function (methodCall1, methodCall2) {
+                        var x = methodCall1.sequenceNumber;
+                        var y = methodCall2.sequenceNumber;
+                        var z = Math.abs(x - y) & 0x40000000;
+                        x ^= z;
+                        y ^= z;
+                        return x - y;
+                    });
+
+                    this.methodCalls.discardNodeRemovals(methodCalls);
+                    this.methodCalls.commitNodeRemovals(completedMethodCallCount);
+                }
+            } else {
+                var allMethodCalls = this.methodCalls.reset();
+
+                allMethodCalls.forEach(function(methodCall) {
+                    var error = new MyError(errorChannelClosed);
+                    setTimeout(methodCall.callback.bind(null, error, null), 0);
+                });
 
                 Object.keys(this.pendingMethodCalls).forEach(function(sequenceNumber) {
                     var methodCall = this.pendingMethodCalls[sequenceNumber];
+                    var error;
 
                     if (methodCall.autoRetry) {
-                        methodCalls.push(methodCall);
+                        error = new MyError(errorChannelClosed);
                     } else {
-                        var error = new Error(errorChannelBroken);
-                        setTimeout(methodCall.callback.bind(null, error, null), 0);
-                        ++completedMethodCallCount;
+                        error = new MyError(errorChannelBroken);
                     }
+
+                    setTimeout(methodCall.callback.bind(null, error, null), 0);
                 }.bind(this));
-
-                methodCalls.sort(function (methodCall1, methodCall2) {
-                    var x = methodCall1.sequenceNumber;
-                    var y = methodCall2.sequenceNumber;
-                    var z = Math.abs(x - y) & 0x40000000;
-                    x ^= z;
-                    y ^= z;
-                    return x - y;
-                });
-
-                this.methodCalls.discardNodeRemovals(methodCalls);
-                this.methodCalls.commitNodeRemovals(completedMethodCallCount);
             }
-        } else {
-            var allMethodCalls = this.methodCalls.reset();
 
-            allMethodCalls.forEach(function(methodCall) {
-                var error = new Error(errorChannelClosed);
-                setTimeout(methodCall.callback.bind(null, error, null), 0);
-            });
-
-            Object.keys(this.pendingMethodCalls).forEach(function(sequenceNumber) {
-                var methodCall = this.pendingMethodCalls[sequenceNumber];
-                var error;
-
-                if (methodCall.autoRetry) {
-                    error = new MyError(errorChannelClosed);
-                } else {
-                    error = new MyError(errorChannelBroken);
-                }
-
-                setTimeout(methodCall.callback.bind(null, error, null), 0);
-            }.bind(this));
-        }
-
-        if (this.isConnected) {
-            clearTimeout(this.heartbeatReadTimeout);
-            this.heartbeatReadTimeout = null;
-            clearTimeout(this.heartbeatWriteTimeout);
-            this.heartbeatWriteTimeout = null;
-            this.pendingMethodCalls = {};
-            this.pendingResultReturnCount = 0;
-            this.resultReturns.suspendNodeProcessor();
-            this.resultReturns = this.resultReturns.renew();
-            console.info("[pbrpc] disconnected from [%s].", this.serverAddress)
-            setTimeout(this.onDisconnect.bind(this, this.autoReconnect), 0);
-        }
-
-        if (this.autoReconnect) {
             if (this.isConnected) {
-                this.isConnected = false;
-                this.connect(0);
-            } else {
-                if (reconnectionDelay == 0) {
-                    reconnectionDelay = minChannelReconnectionDelay;
-                } else {
-                    reconnectionDelay *= 2;
+                clearTimeout(this.heartbeatReadTimeout);
+                this.heartbeatReadTimeout = null;
+                clearTimeout(this.heartbeatWriteTimeout);
+                this.heartbeatWriteTimeout = null;
+                this.pendingMethodCalls = {};
+                this.pendingResultReturnCount = 0;
+                this.resultReturns.suspendNodeProcessor();
+                this.resultReturns = this.resultReturns.renew();
+                console.info("[pbrpc] disconnected from [%s].", this.serverAddress)
+                setTimeout(this.onDisconnect.bind(this, this.autoReconnect), 0);
+            }
 
-                    if (reconnectionDelay > maxChannelReconnectionDelay) {
-                        reconnectionDelay = maxChannelReconnectionDelay;
+            if (this.autoReconnect) {
+                if (this.isConnected) {
+                    this.isConnected = false;
+                    this.connect(0);
+                } else {
+                    if (reconnectionDelay == 0) {
+                        reconnectionDelay = minChannelReconnectionDelay;
+                    } else {
+                        reconnectionDelay *= 2;
+
+                        if (reconnectionDelay > maxChannelReconnectionDelay) {
+                            reconnectionDelay = maxChannelReconnectionDelay;
+                        }
                     }
+
+                    var factor = 2/3 + (3/2 - 2/3) * Math.random();
+
+                    setTimeout(function() {
+                        this.connect(reconnectionDelay);
+                    }.bind(this), factor * reconnectionDelay);
+                }
+            }
+        }.bind(this);
+
+        transport.onWrite = function(data) {
+            if (this.isConnected) {
+                this.receiveMessages(data);
+            } else {
+                var greeting = protocol.Greeting.decode(data[0]);
+
+                if (!greeterCallback(greeting.handshake)) {
+                    this.close();
+                    return;
                 }
 
-                var factor = 2/3 + (3/2 - 2/3) * Math.random();
+                var outgoingWindowSize;
 
-                setTimeout(function() {
-                    this.connect(reconnectionDelay);
-                }.bind(this), factor * reconnectionDelay);
+                if (this.id.isZero()) {
+                    outgoingWindowSize = minChannelWindowSize;
+                } else {
+                    outgoingWindowSize = this.outgoingWindowSize;
+                }
+
+                this.id = UUID.fromBytes(greeting.channel.id);
+                this.timeout = greeting.channel.timeout;
+                this.incomingWindowSize = greeting.channel.incomingWindowSize;
+                this.outgoingWindowSize = greeting.channel.outgoingWindowSize;
+                this.methodCalls.commitNodeRemovals(this.outgoingWindowSize - outgoingWindowSize);
+                this.methodCalls.resumeNodeProcessor();
+                this.resultReturns.resumeNodeProcessor();
+                this.receiveMessages([]);
+                this.sendMessages([], []);
+                this.isConnected = true;
+                console.info("[pbrpc] connected to [%s]!", this.serverAddress)
+                setTimeout(this.onConnect.bind(this), 0);
             }
-        }
+        }.bind(this);
     }.bind(this);
 
-    transport.onWrite = function(data) {
-        if (this.isConnected) {
-            this.receiveMessages(data);
-        } else {
-            var greeting = protocol.Greeting.decode(data[0]);
-
-            if (!greeterCallback(greeting.handshake)) {
-                this.close();
-                return;
-            }
-
-            var outgoingWindowSize;
-
-            if (this.id.isZero()) {
-                outgoingWindowSize = minChannelWindowSize;
-            } else {
-                outgoingWindowSize = this.outgoingWindowSize;
-            }
-
-            this.id = UUID.fromBytes(greeting.channel.id);
-            this.timeout = greeting.channel.timeout;
-            this.incomingWindowSize = greeting.channel.incomingWindowSize;
-            this.outgoingWindowSize = greeting.channel.outgoingWindowSize;
-            this.methodCalls.commitNodeRemovals(this.outgoingWindowSize - outgoingWindowSize);
-            this.methodCalls.resumeNodeProcessor();
-            this.resultReturns.resumeNodeProcessor();
-            this.receiveMessages([]);
-            this.sendMessages([], []);
-            this.isConnected = true;
-            console.info("[pbrpc] connected to [%s]!", this.serverAddress)
-            setTimeout(this.onConnect.bind(this), 0);
-        }
-    }.bind(this);
+    this.handshaker(greeter);
 };
 
 Channel.prototype.receiveMessages = function(data) {
@@ -592,14 +592,14 @@ function MyError(code, desc) {
 MyError.prototype = new Error();
 
 var errorDescs = {
-    errorChannelBroken: "channel broken",
-    errorChannelClosed: "channel closed",
-    errorTooManyRequests: "too many requests",
-    errorNotFound: "not found",
-    errorBadRequest: "bad request",
-    errorNotImplemented: "not implemented",
-    errorInternalServer: "internal server",
-    errorUserDefined: "user defined",
+    [errorChannelBroken]: "channel broken",
+    [errorChannelClosed]: "channel closed",
+    [errorTooManyRequests]: "too many requests",
+    [errorNotFound]: "not found",
+    [errorBadRequest]: "bad request",
+    [errorNotImplemented]: "not implemented",
+    [errorInternalServer]: "internal server",
+    [errorUserDefined]: "user defined",
 };
 
 function registerError(errorCode, errorDesc) {
