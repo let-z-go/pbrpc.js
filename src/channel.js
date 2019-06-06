@@ -307,14 +307,14 @@ Channel.prototype.receiveMessages = function(data) {
                             errorCode = null;
                             errorDesc = null;
                         } else {
-                            responsePayloadData = null;
-
                             if (error instanceof MyError) {
                                 errorCode = error.code;
                                 errorDesc = error.message;
+                                responsePayloadData = error.data;
                             } else {
                                 errorCode = errorInternalServer;
                                 errorDesc = errorDescs[errorInternalServer];
+                                responsePayloadData = new Uint8Array(0);
                             }
                         }
 
@@ -350,7 +350,7 @@ Channel.prototype.receiveMessages = function(data) {
                 nextSpanID: context.spanID + 2,
                 errorCode: error.code,
                 errorDesc: error.message,
-                responsePayloadData: null,
+                responsePayloadData: error.data,
             });
 
             break;
@@ -364,7 +364,15 @@ Channel.prototype.receiveMessages = function(data) {
                 if (responseHeader.errorCode == 0) {
                     setTimeout(methodCall.callback.bind(null, null, messagePayloadData), 0);
                 } else {
-                    var error = new MyError(responseHeader.errorCode, responseHeader.errorDesc);
+                    var errorData;
+
+                    if (messagePayloadData.length == 0) {
+                        errorData = null;
+                    } else {
+                        errorData = messagePayloadData;
+                    }
+
+                    var error = new MyError(responseHeader.errorCode, responseHeader.errorDesc, errorData);
                     setTimeout(methodCall.callback.bind(null, error, null), 0);
                 }
 
@@ -428,22 +436,13 @@ Channel.prototype.sendMessages = function(methodCalls, resultReturns) {
             errorDesc: resultReturn.errorDesc,
         }).finish();
 
-        if (resultReturn.errorCode == 0) {
-            var buffer = new Uint8Array(3 + responseHeaderData.length + resultReturn.responsePayloadData.length);
-            buffer[0] = protocol.MessageType.MESSAGE_RESPONSE;
-            buffer[1] = responseHeaderData.length >> 8;
-            buffer[2] = responseHeaderData.length & 0xFF;
-            buffer.set(responseHeaderData, 3);
-            buffer.set(resultReturn.responsePayloadData, 3 + responseHeaderData.length);
-            buffers.push(buffer);
-        } else {
-            var buffer = new Uint8Array(3 + responseHeaderData.length);
-            buffer[0] = protocol.MessageType.MESSAGE_RESPONSE;
-            buffer[1] = responseHeaderData.length >> 8;
-            buffer[2] = responseHeaderData.length & 0xFF;
-            buffer.set(responseHeaderData, 3);
-            buffers.push(buffer);
-        }
+        var buffer = new Uint8Array(3 + responseHeaderData.length + resultReturn.responsePayloadData.length);
+        buffer[0] = protocol.MessageType.MESSAGE_RESPONSE;
+        buffer[1] = responseHeaderData.length >> 8;
+        buffer[2] = responseHeaderData.length & 0xFF;
+        buffer.set(responseHeaderData, 3);
+        buffer.set(resultReturn.responsePayloadData, 3 + responseHeaderData.length);
+        buffers.push(buffer);
     });
 
     this.transport.writeInBatch(buffers);
@@ -516,7 +515,7 @@ Channel.prototype.onCallMethodByLocal = function(context, requestPayload) {
             }
 
             log(
-                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, errorCode=%d, errorDesc=%s",
+                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, errorCode=%d, errorDesc=%s, errorData=%s",
                 context.traceID.toString(),
                 context.spanID,
                 context.serviceName,
@@ -525,6 +524,7 @@ Channel.prototype.onCallMethodByLocal = function(context, requestPayload) {
                 requestPayload,
                 error.code,
                 JSON.stringify(error.message),
+                JSON.stringify(String.fromCharCode.apply(null, error.data)),
             );
         }
     };
@@ -562,7 +562,7 @@ Channel.prototype.onCallMethodByRemote = function(context, request) {
             }
 
             log(
-                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s",
+                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, errorData=%s",
                 context.traceID.toString(),
                 context.spanID,
                 context.serviceName,
@@ -571,12 +571,13 @@ Channel.prototype.onCallMethodByRemote = function(context, request) {
                 request,
                 error.code,
                 JSON.stringify(error.message),
+                JSON.stringify(String.fromCharCode.apply(null, error.data)),
             );
         }
     };
 };
 
-function MyError(code, desc) {
+function MyError(code, desc, data) {
     if (desc == null) {
         if (code in errorDescs) {
             desc = errorDescs[code];
@@ -585,8 +586,13 @@ function MyError(code, desc) {
         }
     }
 
+    if (data == null) {
+        data = new Uint8Array(0);
+    }
+
     this.code = code;
     this.message = desc;
+    this.data = data;
 }
 
 MyError.prototype = new Error();
