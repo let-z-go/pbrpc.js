@@ -152,7 +152,7 @@ function %sServiceHandler() {
                 var responsePayload = responseType.fromObject(response);
 
                 if (onReturnResultByLocal != null) {
-                    onReturnResultByLocal(0, responsePayload);
+                    onReturnResultByLocal(null, responsePayload);
                 }
 
                 responsePayloadData = responseType.encode(responsePayload).finish();

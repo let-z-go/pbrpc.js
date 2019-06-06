@@ -289,7 +289,8 @@ Channel.prototype.receiveMessages = function(data) {
 
             var serviceHandler = null;
             var methodHandler = null;
-            var error;
+            var error = null;
+            var error2;
 
             if (context.serviceName in this.serviceHandlers
                 && (serviceHandler = this.serviceHandlers[context.serviceName], context.methodName in serviceHandler.methodTable)
@@ -299,58 +300,67 @@ Channel.prototype.receiveMessages = function(data) {
                 if (this.pendingResultReturnCount <= this.incomingWindowSize) {
                     var resultReturns = this.resultReturns;
 
-                    methodHandler.call(serviceHandler, this, context, messagePayloadData, function(error, responsePayloadData) {
-                        var errorCode;
-                        var errorDesc;
+                    try {
+                        methodHandler.call(serviceHandler, this, context, messagePayloadData, function(error, responsePayloadData) {
+                            var errorCode;
+                            var errorDesc;
 
-                        if (error == null) {
-                            errorCode = null;
-                            errorDesc = null;
-                        } else {
-                            if (error instanceof MyError) {
-                                errorCode = error.code;
-                                errorDesc = error.message;
-                                responsePayloadData = error.data;
+                            if (error == null) {
+                                errorCode = null;
+                                errorDesc = null;
                             } else {
-                                errorCode = errorInternalServer;
-                                errorDesc = errorDescs[errorInternalServer];
-                                responsePayloadData = new Uint8Array(0);
+                                if (error instanceof MyError) {
+                                    errorCode = error.code;
+                                    errorDesc = error.message;
+                                    responsePayloadData = error.data;
+                                } else {
+                                    errorCode = errorInternalServer;
+                                    errorDesc = errorDescs[errorInternalServer];
+                                    responsePayloadData = new Uint8Array(0);
+                                }
                             }
-                        }
 
-                        resultReturns.appendNode({
-                            sequenceNumber: requestHeader.sequenceNumber,
-                            nextSpanID: context.spanID + 2,
-                            errorCode: errorCode,
-                            errorDesc: errorDesc,
-                            responsePayloadData: responsePayloadData,
-                        });
-                    }.bind(this));
+                            resultReturns.appendNode({
+                                sequenceNumber: requestHeader.sequenceNumber,
+                                nextSpanID: context.spanID + 2,
+                                errorCode: errorCode,
+                                errorDesc: errorDesc,
+                                responsePayloadData: responsePayloadData,
+                            });
+                        }.bind(this));
 
-                    break;
+                        break;
+                    } catch (e) {
+                        error = e;
+                        error2 = new MyError(errorInternalServer);
+                    }
+                } else {
+                    error2 = new MyError(errorTooManyRequests);
                 }
-
-                error = new MyError(errorTooManyRequests);
             } else {
                 if (serviceHandler != null && methodHandler != null) {
-                    error = new MyError(errorNotImplemented);
+                    error2 = new MyError(errorNotImplemented);
                 } else {
-                    error = new MyError(errorNotFound);
+                    error2 = new MyError(errorNotFound);
                 }
             }
 
             var onReturnResultByLocal = this.onCallMethodByRemote(context, {});
 
             if (onReturnResultByLocal != null) {
+                if (error == null) {
+                    error = error2;
+                }
+
                 onReturnResultByLocal(error, null);
             }
 
             this.resultReturns.appendNode({
                 sequenceNumber: requestHeader.sequenceNumber,
                 nextSpanID: context.spanID + 2,
-                errorCode: error.code,
-                errorDesc: error.message,
-                responsePayloadData: error.data,
+                errorCode: error2.code,
+                errorDesc: error2.message,
+                responsePayloadData: error2.data,
             });
 
             break;
@@ -553,26 +563,41 @@ Channel.prototype.onCallMethodByRemote = function(context, request) {
                 responsePayload,
             );
         } else {
-            var log;
+            if (error instanceof MyError) {
+                var log;
 
-            if (error.code < errorUserDefined) {
-                log = console.error;
+                if (error.code < errorUserDefined) {
+                    log = console.error;
+                } else {
+                    log = console.info;
+                }
+
+                log(
+                    "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, errorData=%s",
+                    context.traceID.toString(),
+                    context.spanID,
+                    context.serviceName,
+                    context.methodName,
+                    duration,
+                    request,
+                    error.code,
+                    JSON.stringify(error.message),
+                    JSON.stringify(String.fromCharCode.apply(null, error.data)),
+                );
             } else {
-                log = console.info;
+                console.error(
+                    "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, error=%o",
+                    context.traceID.toString(),
+                    context.spanID,
+                    context.serviceName,
+                    context.methodName,
+                    duration,
+                    request,
+                    errorInternalServer,
+                    JSON.stringify(errorDescs[errorInternalServer]),
+                    error,
+                );
             }
-
-            log(
-                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, errorData=%s",
-                context.traceID.toString(),
-                context.spanID,
-                context.serviceName,
-                context.methodName,
-                duration,
-                request,
-                error.code,
-                JSON.stringify(error.message),
-                JSON.stringify(String.fromCharCode.apply(null, error.data)),
-            );
         }
     };
 };
