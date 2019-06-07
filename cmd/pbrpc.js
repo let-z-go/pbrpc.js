@@ -51,25 +51,37 @@ function processService(serviceFullName, serviceName, methods) {
 function generateServiceClient(serviceFullName, serviceName, methods) {
     console.log(heredoc(function() {/*
 
-function %sServiceClient(channel, fifoKey, extraData, autoRetry) {
-    if (fifoKey == undefined) {
-        fifoKey = null;
-    }
-
-    if (extraData == undefined) {
-        extraData = null;
-    }
-
-    if (autoRetry == undefined) {
-        autoRetry = false;
-    }
-
+function %sServiceClient(channel) {
     this.channel = channel;
-    this.fifoKey = fifoKey;
-    this.extraData = extraData;
-    this.autoRetry = autoRetry;
+    this.resourceID = null;
+    this.extraData = null;
+    this.autoRetry = false;
 }
-*/}), serviceName);
+
+%sServiceClient.prototype.withResourceID = function(resourceID) {
+    var other = new this.constructor(this.channel);
+    other.resourceID = resourceID;
+    other.extraData = this.extraData;
+    other.autoRetry = this.autoRetry;
+    return other;
+};
+
+%sServiceClient.prototype.withExtraData = function(extraData) {
+    var other = new this.constructor(this.channel);
+    other.resourceID = this.resourceID;
+    other.extraData = extraData;
+    other.autoRetry = this.autoRetry;
+    return other;
+};
+
+%sServiceClient.prototype.withAutoRetry = function(autoRetry) {
+    var other = new this.constructor(this.channel);
+    other.resourceID = this.resourceID;
+    other.extraData = this.extraData;
+    other.autoRetry = autoRetry;
+    return other;
+};
+*/}), serviceName, serviceName, serviceName, serviceName);
 
     Object.keys(methods).forEach(function(methodName) {
         var method = methods[methodName];
@@ -88,7 +100,7 @@ function %sServiceClient(channel, fifoKey, extraData, autoRetry) {
     var requestPayloadData = requestType.encode(requestPayload).finish();
     var onReturnResultByRemote;
 
-    var context = this.channel.callMethod("%s", "%s", this.fifoKey, this.extraData, requestPayloadData, this.autoRetry, function(error, responsePayloadData) {
+    var context = this.channel.callMethod("%s", "%s", this.resourceID, this.extraData, requestPayloadData, this.autoRetry, function(error, responsePayloadData) {
         var response;
 
         if (error == null) {

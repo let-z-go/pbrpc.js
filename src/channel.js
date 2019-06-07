@@ -68,11 +68,11 @@ Channel.prototype.close = function() {
     this.transport.close();
 };
 
-Channel.prototype.callMethod = function(serviceName, methodName, fifoKey, extraData, requestPayloadData, autoRetryMethodCall, callback) {
+Channel.prototype.callMethod = function(serviceName, methodName, resourceID, extraData, requestPayloadData, autoRetryMethodCall, callback) {
     var context = {
         serviceName: serviceName,
         methodName: methodName,
-        fifoKey: fifoKey,
+        resourceID: resourceID,
         extraData: extraData,
         traceID: UUID.v4(),
         spanParentID: 0,
@@ -92,7 +92,7 @@ Channel.prototype.callMethod = function(serviceName, methodName, fifoKey, extraD
     this.methodCalls.appendNode({
         serviceName: context.serviceName,
         methodName: context.methodName,
-        fifoKey: context.fifoKey,
+        resourceID: context.resourceID,
         extraData: context.extraData,
         traceID: context.traceID,
         spanID: context.spanID,
@@ -280,7 +280,7 @@ Channel.prototype.receiveMessages = function(data) {
             var context = {
                 serviceName: requestHeader.serviceName,
                 methodName: requestHeader.methodName,
-                fifoKey: requestHeader.fifoKey,
+                resourceID: requestHeader.resourceId,
                 extraData: requestHeader.extraData,
                 traceID: UUID.fromBytes(requestHeader.traceId),
                 spanParentID: requestHeader.spanId,
@@ -423,7 +423,7 @@ Channel.prototype.sendMessages = function(methodCalls, resultReturns) {
             sequenceNumber: methodCall.sequenceNumber,
             serviceName: methodCall.serviceName,
             methodName: methodCall.methodName,
-            fifoKey: methodCall.fifoKey,
+            resourceId: methodCall.resourceID,
             extraData: methodCall.extraData,
             traceId: methodCall.traceID.bytes,
             spanId: methodCall.spanID,
@@ -506,11 +506,12 @@ Channel.prototype.onCallMethodByLocal = function(context, requestPayload) {
 
         if (error == null) {
             console.info(
-                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, response=%o",
+                "[pbrpc][C->S][%s:%d][%s.%s:%s][%.3f] requestPayload=%o, response=%o",
                 context.traceID.toString(),
                 context.spanID,
                 context.serviceName,
                 context.methodName,
+                context.resourceID,
                 duration,
                 requestPayload,
                 response,
@@ -525,11 +526,12 @@ Channel.prototype.onCallMethodByLocal = function(context, requestPayload) {
             }
 
             log(
-                "[pbrpc][C->S][%s:%d][%s.%s][%.3f] requestPayload=%o, errorCode=%d, errorDesc=%s, errorData=%s",
+                "[pbrpc][C->S][%s:%d][%s.%s:%s][%.3f] requestPayload=%o, errorCode=%d, errorDesc=%s, errorData=%s",
                 context.traceID.toString(),
                 context.spanID,
                 context.serviceName,
                 context.methodName,
+                context.resourceID,
                 duration,
                 requestPayload,
                 error.code,
@@ -553,11 +555,12 @@ Channel.prototype.onCallMethodByRemote = function(context, request) {
 
         if (error == null) {
             console.info(
-                "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, responsePayload=%o",
+                "[pbrpc][S->C][%s:%d][%s.%s:%s][%.3f] request=%o, responsePayload=%o",
                 context.traceID.toString(),
                 context.spanID,
                 context.serviceName,
                 context.methodName,
+                context.resourceID,
                 duration,
                 request,
                 responsePayload,
@@ -573,11 +576,12 @@ Channel.prototype.onCallMethodByRemote = function(context, request) {
                 }
 
                 log(
-                    "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, errorData=%s",
+                    "[pbrpc][S->C][%s:%d][%s.%s:%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, errorData=%s",
                     context.traceID.toString(),
                     context.spanID,
                     context.serviceName,
                     context.methodName,
+                    context.resourceID,
                     duration,
                     request,
                     error.code,
@@ -586,11 +590,12 @@ Channel.prototype.onCallMethodByRemote = function(context, request) {
                 );
             } else {
                 console.error(
-                    "[pbrpc][S->C][%s:%d][%s.%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, error=%o",
+                    "[pbrpc][S->C][%s:%d][%s.%s:%s][%.3f] request=%o, errorCode=%d, errorDesc=%s, error=%o",
                     context.traceID.toString(),
                     context.spanID,
                     context.serviceName,
                     context.methodName,
+                    context.resourceID,
                     duration,
                     request,
                     errorInternalServer,
